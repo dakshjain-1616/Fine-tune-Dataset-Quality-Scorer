@@ -1,0 +1,50 @@
+# Fine-tune Dataset Quality Scorer Configuration
+
+# Score weights (must sum to 1.0)
+weights:
+  format: 0.20
+  deduplication: 0.15
+  length: 0.15
+  complexity: 0.10
+  toxicity: 0.15
+  language: 0.10
+  diversity: 0.10
+  response_quality: 0.05
+
+# Thresholds for quality checks
+thresholds:
+  # Deduplication
+  near_duplicate_threshold: 0.85
+  
+  # Length distribution
+  min_instruction_tokens: 5
+  max_instruction_tokens: 2048
+  min_response_tokens: 10
+  max_response_tokens: 4096
+  min_response_ratio: 0.1
+  
+  # Toxicity
+  toxicity_high: 0.7
+  toxicity_medium: 0.4
+  
+  # Language detection
+  language_confidence_min: 0.8
+  language_inconsistency_threshold: 0.05
+  
+  # Diversity
+  diversity_similarity_flag: 0.7
+  
+  # Complexity
+  trivial_percentage_flag: 0.60
+  complex_percentage_min: 0.05
+
+# Processing settings
+processing:
+  diversity_sample_size: 500
+  diversity_clusters: 10
+
+# Score bands
+score_bands:
+  ready: 90
+  caution: 75
+  needs_work: 50

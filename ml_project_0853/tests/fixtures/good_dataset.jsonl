@@ -1,0 +1,10 @@
+{"text": "What is the capital of France?", "label": "question", "answer": "Paris"}
+{"text": "The sky is blue.", "label": "statement", "answer": "True"}
+{"text": "Who wrote Hamlet?", "label": "question", "answer": "Shakespeare"}
+{"text": "Water boils at 100 degrees Celsius.", "label": "statement", "answer": "True"}
+{"text": "What is 2 + 2?", "label": "question", "answer": "4"}
+{"text": "The Earth orbits the Sun.", "label": "statement", "answer": "True"}
+{"text": "Who discovered gravity?", "label": "question", "answer": "Newton"}
+{"text": "Light travels faster than sound.", "label": "statement", "answer": "True"}
+{"text": "What is the largest planet?", "label": "question", "answer": "Jupiter"}
+{"text": "Humans have five senses.", "label": "statement", "answer": "True"}

@@ -1,0 +1,10 @@
+{"text": "Incomplete record"}
+{"label": "missing text field"}
+{"text": "", "label": "empty text"}
+{"text": "Duplicate", "label": "test"}
+{"text": "Duplicate", "label": "test"}
+{"text": "Duplicate", "label": "test"}
+{"text": null, "label": "null value"}
+{"text": "   ", "label": "whitespace only"}
+{"label": "no text key"}
+{"text": "Another record", "label": "test"}

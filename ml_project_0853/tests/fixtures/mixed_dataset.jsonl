@@ -1,0 +1,10 @@
+{"text": "Good record 1", "label": "positive", "answer": "Yes"}
+{"text": "Good record 2", "label": "negative", "answer": "No"}
+{"text": "Missing answer", "label": "positive"}
+{"text": "Good record 3", "label": "positive", "answer": "Yes"}
+{"text": "", "label": "negative", "answer": "No"}
+{"text": "Good record 4", "label": "neutral", "answer": "Maybe"}
+{"text": "Good record 5", "label": "positive", "answer": "Yes"}
+{"text": null, "label": "negative"}
+{"text": "Good record 6", "label": "negative", "answer": "No"}
+{"text": "Good record 7", "label": "positive", "answer": "Yes"}
