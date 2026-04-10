@@ -1,50 +1,40 @@
 # Fine-tune Dataset Quality Scorer Configuration
 
 # Score weights (must sum to 1.0)
+# These determine how much each check contributes to the overall score.
 weights:
-  format: 0.20
-  deduplication: 0.15
-  length: 0.15
-  complexity: 0.10
-  toxicity: 0.15
-  language: 0.10
-  diversity: 0.10
-  response_quality: 0.05
+  json_format: 0.10
+  field_consistency: 0.20
+  missing_values: 0.20
+  duplicates: 0.15
+  near_duplicates: 0.10
+  text_length: 0.10
+  label_quality: 0.15
 
-# Thresholds for quality checks
+# Thresholds for individual checks
 thresholds:
-  # Deduplication
-  near_duplicate_threshold: 0.85
-  
-  # Length distribution
-  min_instruction_tokens: 5
-  max_instruction_tokens: 2048
-  min_response_tokens: 10
-  max_response_tokens: 4096
-  min_response_ratio: 0.1
-  
-  # Toxicity
-  toxicity_high: 0.7
-  toxicity_medium: 0.4
-  
-  # Language detection
-  language_confidence_min: 0.8
-  language_inconsistency_threshold: 0.05
-  
-  # Diversity
-  diversity_similarity_flag: 0.7
-  
-  # Complexity
-  trivial_percentage_flag: 0.60
-  complex_percentage_min: 0.05
+  # Field consistency (fraction of records that have ALL expected fields)
+  field_consistency_pass: 0.95   # >= 95% → full pass
+  field_consistency_soft: 0.80   # 80-95% → soft pass (score penalised)
 
-# Processing settings
-processing:
-  diversity_sample_size: 500
-  diversity_clusters: 10
+  # Missing / empty values (fraction of present field values that are non-empty)
+  missing_values_pass: 0.95      # >= 95% completeness → full pass
+  missing_values_soft: 0.80      # 80-95% → soft pass (score penalised)
 
-# Score bands
+  # Exact deduplication (fraction of records that are unique)
+  duplicate_soft: 0.90           # >= 90% unique → soft pass
+
+  # Near-duplicate detection (Jaccard word-set similarity)
+  near_duplicate_similarity: 0.85  # pairs above this threshold are flagged
+  near_duplicate_sample: 500       # max records compared (for performance)
+
+  # Text length (in words, applied to primary text / instruction field)
+  min_text_words: 3
+  max_text_words: 2000
+
+# Score bands (used for the grade label and recommendations)
 score_bands:
-  ready: 90
-  caution: 75
-  needs_work: 50
+  ready: 90        # >= 90 → READY for fine-tuning
+  caution: 75      # 75-89 → CAUTION: minor issues
+  needs_work: 50   # 50-74 → NEEDS WORK: significant issues
+                   # < 50  → NOT READY: critical issues
