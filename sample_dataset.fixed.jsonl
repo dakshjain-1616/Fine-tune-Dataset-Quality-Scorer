@@ -1,0 +1,28 @@
+{"instruction": "Explain the difference between supervised and unsupervised learning.", "input": "", "output": "Supervised learning uses labelled data to train a model, while unsupervised learning finds patterns in unlabelled data without explicit guidance."}
+{"instruction": "Write a Python function to reverse a string.", "input": "", "output": "def reverse_string(s):\n    return s[::-1]"}
+{"instruction": "Summarise the following paragraph in one sentence.", "input": "The Amazon rainforest is home to an estimated 10% of all species on Earth. It produces 20% of the world's oxygen and plays a critical role in regulating the global climate.", "output": "The Amazon rainforest is a biodiversity hotspot that produces a fifth of Earth's oxygen and helps regulate the global climate."}
+{"instruction": "Translate the sentence to French.", "input": "The weather is beautiful today.", "output": "Le temps est magnifique aujourd'hui."}
+{"instruction": "What is gradient descent?", "input": "", "output": "Gradient descent is an optimisation algorithm that iteratively adjusts model parameters in the direction that minimises a loss function, using the gradient of the loss with respect to each parameter."}
+{"instruction": "Write a SQL query to find all users who signed up after 2023-01-01.", "input": "", "output": "SELECT * FROM users WHERE signup_date > '2023-01-01';"}
+{"instruction": "Explain what a REST API is.", "input": "", "output": "A REST API is an interface that allows systems to communicate over HTTP using standard methods like GET, POST, PUT, and DELETE, following stateless principles."}
+{"instruction": "Give three tips for writing clean code.", "input": "", "output": "1. Use meaningful variable and function names.\n2. Keep functions short and focused on a single task.\n3. Write comments only where the logic is non-obvious."}
+{"instruction": "What is the capital of Japan?", "input": "", "output": "Tokyo"}
+{"instruction": "Convert the temperature from Celsius to Fahrenheit.", "input": "37", "output": "To convert 37°C to Fahrenheit: (37 × 9/5) + 32 = 98.6°F"}
+{"instruction": "Explain overfitting in machine learning.", "input": "", "output": "Overfitting occurs when a model learns the training data too well, including its noise, causing poor generalisation to new, unseen data."}
+{"instruction": "Write a haiku about the ocean.", "input": "", "output": "Waves crash on the shore\nSalt and mist fill the cool air\nThe sea breathes slowly"}
+{"instruction": "What does HTTP stand for?", "input": "", "output": "HyperText Transfer Protocol"}
+{"instruction": "Explain the concept of recursion with an example.", "input": "", "output": "Recursion is when a function calls itself to solve a smaller version of the same problem. For example, a factorial function: def factorial(n): return 1 if n <= 1 else n * factorial(n - 1)"}
+{"instruction": "List the planets in the solar system in order from the Sun.", "input": "", "output": "Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune"}
+{"instruction": "Summarise the following paragraph in one sentence.", "input": "The Amazon rainforest spans across nine countries in South America. It is home to roughly 10 percent of all species on Earth and produces around 20 percent of the world's oxygen.", "output": "Spanning nine South American countries, the Amazon rainforest is a critical biodiversity and oxygen-producing ecosystem."}
+{"instruction": "Write a Python function to check if a number is prime.", "input": "", "output": "def is_prime(n):\n    if n < 2:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True"}
+{"instruction": "Explain what Docker is.", "input": "", "output": "Docker is a platform that packages applications and their dependencies into containers, ensuring consistent behaviour across different environments."}
+{"instruction": "What is the difference between a list and a tuple in Python?", "input": "", "output": "Lists are mutable (can be changed after creation) while tuples are immutable (cannot be changed). Tuples are generally faster and used for fixed collections of items."}
+{"instruction": "Write a regex to match a valid email address.", "input": "", "output": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}
+{"instruction": "Describe the water cycle.", "input": "", "output": "The water cycle describes the continuous movement of water through evaporation from bodies of water, condensation into clouds, and precipitation back to the surface as rain or snow."}
+{"instruction": "Explain what a neural network is.", "input": "", "output": ""}
+{"instruction": "What is a binary search tree?", "input": "", "output": "A binary search tree is a tree data structure where each node has at most two children, with left children holding smaller values and right children holding larger values, enabling efficient search and insertion."}
+{"instruction": "Translate the sentence to Spanish.", "input": "Good morning, how are you?", "output": "Buenos días, ¿cómo estás?"}
+{"instruction": "What is the time complexity of binary search?", "input": "", "output": "O(log n)"}
+{"instruction": "Explain the CAP theorem.", "input": "", "output": "The CAP theorem states that a distributed system can guarantee at most two of three properties simultaneously: Consistency, Availability, and Partition tolerance."}
+{"instruction": "Hi", "input": "", "output": "Hello! How can I help you?"}
+{"instruction": "What is transfer learning?", "input": "", "output": "Transfer learning is a technique where a model trained on one task is reused as the starting point for a model on a different but related task, reducing training time and data requirements."}

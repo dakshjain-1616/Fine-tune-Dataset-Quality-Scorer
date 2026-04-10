@@ -13,7 +13,11 @@ from src.checks import (
     check_missing_values,
     check_duplicates,
     check_near_duplicates,
+    check_output_diversity,
     check_text_length,
+    check_token_length,
+    check_instruction_quality,
+    check_language_consistency,
     check_label_quality,
     calculate_quality_score,
 )
@@ -165,6 +169,25 @@ class TestMissingValues:
         assert details["total_affected_rows"] == 1
         assert details["affected_rows"][0]["row"] == 2
 
+    def test_alpaca_optional_input_not_penalised(self):
+        """Empty `input` in Alpaca datasets is structurally valid and must not
+        lower the completeness score or trigger a FAIL."""
+        data = [
+            {"instruction": "What is gravity?", "input": "", "output": "A fundamental force."},
+            {"instruction": "Explain recursion.", "input": "", "output": "A function calling itself."},
+            {"instruction": "Translate to French.", "input": "Hello world", "output": "Bonjour monde"},
+        ]
+        passed, message, score, details = check_missing_values(data)
+        assert passed is True
+        assert score == 1.0
+        assert "input" in details["skipped_optional_fields"]
+
+    def test_skipped_optional_fields_key_always_present(self):
+        """details must always include skipped_optional_fields, even when empty."""
+        data = [{"text": "hello", "label": "x"}]
+        _, _, _, details = check_missing_values(data)
+        assert "skipped_optional_fields" in details
+
 
 # ---------------------------------------------------------------------------
 # check_duplicates
@@ -234,6 +257,35 @@ class TestNearDuplicates:
         assert passed is True
         assert score == 1.0
 
+    def test_identical_instruction_different_input_flagged(self):
+        """Two records sharing the same instruction but different inputs have
+        sim==1.0 on the text field yet differ as full records — they are NOT
+        exact duplicates but ARE near-duplicates and must be flagged."""
+        data = [
+            {
+                "instruction": "Summarise this paragraph in one sentence.",
+                "input": "The Amazon rainforest spans nine countries.",
+                "output": "The Amazon covers nine countries.",
+            },
+            {
+                "instruction": "Summarise this paragraph in one sentence.",
+                "input": "The Sahara is the world's largest hot desert.",
+                "output": "The Sahara is the largest hot desert.",
+            },
+        ]
+        _, _, _, details = check_near_duplicates(data)
+        assert details["total_near_duplicate_pairs"] == 1
+
+    def test_exact_duplicates_not_double_counted(self):
+        """Fully identical Alpaca records must not appear in near-duplicate
+        results — they are handled exclusively by check_duplicates."""
+        data = [
+            {"instruction": "What is Python?", "input": "", "output": "A programming language."},
+            {"instruction": "What is Python?", "input": "", "output": "A programming language."},
+        ]
+        _, _, _, details = check_near_duplicates(data)
+        assert details["total_near_duplicate_pairs"] == 0
+
 
 # ---------------------------------------------------------------------------
 # check_text_length
@@ -266,6 +318,122 @@ class TestTextLength:
         _, _, _, details = check_text_length(data)
         assert details["too_short_rows"][0]["row"] == 1
 
+
+# ---------------------------------------------------------------------------
+# check_output_diversity
+# ---------------------------------------------------------------------------
+
+class TestOutputDiversity:
+    def test_diverse_outputs_pass(self):
+        data = [
+            {"instruction": "Q1", "input": "", "output": "The quick brown fox jumps over the lazy dog"},
+            {"instruction": "Q2", "input": "", "output": "Machine learning uses statistical methods to find patterns"},
+            {"instruction": "Q3", "input": "", "output": "Python is a high-level general-purpose language"},
+        ]
+        passed, _, score, details = check_output_diversity(data)
+        assert passed is True
+        assert score == 1.0
+        assert details["total_similar_output_pairs"] == 0
+
+    def test_identical_outputs_flagged(self):
+        code = "def sort_list(lst): return sorted(lst)"
+        data = [
+            {"instruction": "Write a sort function in Python", "input": "", "output": code},
+            {"instruction": "Create a function that sorts a list", "input": "", "output": code},
+        ]
+        _, _, _, details = check_output_diversity(data)
+        assert details["total_similar_output_pairs"] >= 1
+
+    def test_no_output_field_passes(self):
+        data = [{"text": "hello world today"}, {"text": "machine learning concepts"}]
+        passed, _, score, _ = check_output_diversity(data)
+        assert passed is True
+        assert score == 1.0
+
+
+# ---------------------------------------------------------------------------
+# check_token_length
+# ---------------------------------------------------------------------------
+
+class TestTokenLength:
+    def test_short_records_pass(self):
+        data = [
+            {"instruction": "What is Python?", "input": "", "output": "A programming language."},
+            {"instruction": "What is Java?", "input": "", "output": "A compiled language."},
+        ]
+        passed, _, score, details = check_token_length(data)
+        assert passed is True
+        assert score == 1.0
+        assert details["total_overflow_rows"] == 0
+
+    def test_long_record_flagged(self):
+        long_text = "word " * 2000  # ~2600 estimated tokens
+        data = [{"instruction": long_text, "input": "", "output": "short answer"}]
+        _, _, _, details = check_token_length(data)
+        assert details["total_overflow_rows"] == 1
+
+    def test_avg_tokens_reported_in_details(self):
+        data = [{"instruction": "ten words in this instruction text here right", "input": "", "output": "ok"}]
+        _, _, _, details = check_token_length(data)
+        assert "avg_estimated_tokens" in details
+        assert details["avg_estimated_tokens"] > 0
+
+
+# ---------------------------------------------------------------------------
+# check_instruction_quality
+# ---------------------------------------------------------------------------
+
+class TestInstructionQuality:
+    def test_good_alpaca_instructions_pass(self):
+        data = [
+            {"instruction": "Write a Python function to sort a list of integers.", "input": "", "output": "..."},
+            {"instruction": "Explain the difference between supervised and unsupervised learning.", "input": "", "output": "..."},
+        ]
+        passed, _, score, details = check_instruction_quality(data)
+        assert passed is True
+        assert score == 1.0
+        assert details["total_flagged"] == 0
+
+    def test_vague_instruction_flagged(self):
+        data = [
+            {"instruction": "help me", "input": "", "output": "sure"},
+            {"instruction": "Explain gradient descent in detail with examples.", "input": "", "output": "..."},
+        ]
+        _, _, _, details = check_instruction_quality(data)
+        assert details["total_flagged"] >= 1
+
+    def test_skipped_for_non_alpaca_format(self):
+        # Generic format — check must return 1.0 to avoid false positives
+        data = [{"text": "hi", "label": "x"}, {"text": "ok", "label": "y"}]
+        passed, _, score, _ = check_instruction_quality(data)
+        assert passed is True
+        assert score == 1.0
+
+
+# ---------------------------------------------------------------------------
+# check_language_consistency
+# ---------------------------------------------------------------------------
+
+class TestLanguageConsistency:
+    def test_consistent_ascii_passes(self):
+        data = [
+            {"text": "What is the capital of France?"},
+            {"text": "Explain the concept of machine learning step by step."},
+            {"text": "Write a function to sort a list of integers efficiently."},
+        ]
+        passed, _, score, details = check_language_consistency(data)
+        assert passed is True
+        assert score == 1.0
+        assert details["total_anomalous_rows"] == 0
+
+    def test_script_switch_flagged(self):
+        data = [
+            {"text": "What is the capital of France?"},
+            {"text": "Explain machine learning concepts clearly and simply."},
+            {"text": "什么是机器学习？这是一个非常重要的问题，值得深入研究。"},
+        ]
+        _, _, _, details = check_language_consistency(data)
+        assert details["total_anomalous_rows"] >= 1
 
 # ---------------------------------------------------------------------------
 # check_label_quality
@@ -367,7 +535,11 @@ class TestQualityChecksIntegration:
             "missing_values",
             "duplicates",
             "near_duplicates",
+            "output_diversity",
             "text_length",
+            "token_length",
+            "instruction_quality",
+            "language_consistency",
             "label_quality",
         ]
         for check in expected_checks:

@@ -13,6 +13,95 @@ _TEXT_FIELDS = ["text", "instruction", "prompt", "input", "question"]
 # Fields considered classification labels
 _LABEL_FIELDS = ["label", "category", "class", "target"]
 
+# Fields that are intentionally optional (empty = valid) per detected format.
+# Empty values in these fields are excluded from check_missing_values so that
+# structurally-optional fields don't produce false-positive completeness failures.
+_FORMAT_OPTIONAL_FIELDS: Dict[str, set] = {
+    "alpaca": {"input"},   # Alpaca `input` provides extra context — absent means none needed
+}
+
+# ---------------------------------------------------------------------------
+# Domain detection constants
+# ---------------------------------------------------------------------------
+
+# Keywords used to score each subject-matter domain.
+# Lists are intentionally broad so a single text match contributes signal.
+_DOMAIN_KEYWORDS: Dict[str, List[str]] = {
+    "coding": [
+        "python", "javascript", "java", "typescript", "c++", "rust", "golang", "bash",
+        "function", "algorithm", "implement", "write a function", "code", "program",
+        "def ", "class ", "sql", "select", "query", "debug", "fix the", "refactor",
+        "loop", "recursion", "array", "string", "sort", "search", "api", "database",
+        "regex", "script", "variable", "return ", "import ",
+    ],
+    "translation": [
+        "translate", "translation", "french", "spanish", "german", "chinese",
+        "japanese", "portuguese", "arabic", "hindi", "korean", "italian", "language",
+    ],
+    "summarization": [
+        "summarize", "summarise", "summary", "tldr", "key points", "main idea",
+        "following paragraph", "following passage", "following article", "condense",
+    ],
+    "qa": [
+        "what is", "who is", "when did", "where is", "why does", "how does",
+        "what are", "explain", "describe", "define", "what does", "capital of",
+        "who wrote", "how many", "what year", "tell me about",
+    ],
+}
+
+# Domain-specific suggestions shown in the analyse command.
+_DOMAIN_SUGGESTIONS: Dict[str, List[str]] = {
+    "coding": [
+        "Add multiple programming languages — JavaScript, SQL, and Bash improve model versatility",
+        "Include debugging/fixing tasks (~30% of data): 'find the bug in this function'",
+        "Add edge-case examples: empty inputs, None/null values, boundary conditions",
+        "Vary task complexity: short snippets (5–10 lines), medium functions, multi-function programs",
+        "Add code-explanation tasks: 'what does this code do?' — teaches analytical reasoning",
+        "Include unit-test writing tasks to teach correctness awareness",
+        "Add refactoring tasks: 'improve this code for readability / performance'",
+    ],
+    "translation": [
+        "Add bidirectional pairs (A→B and B→A) for balanced language coverage",
+        "Include formal, informal, and technical register examples",
+        "Add longer complex sentences with nested clauses — not just simple phrases",
+        "Include idiomatic expressions that don't translate word-for-word",
+        "Expand to multiple target languages if multilingual capability is needed",
+    ],
+    "summarization": [
+        "Vary input length: short paragraphs (~100 words), medium passages (~500 words), long articles (1000+)",
+        "Keep output-to-input compression ratio consistent (~20–30%) across records",
+        "Include diverse source genres: news, academic, technical documentation, narrative",
+        "Mix extractive style (key sentences verbatim) and abstractive style (rephrased)",
+        "Add single-sentence TL;DR tasks alongside multi-sentence summaries",
+    ],
+    "qa": [
+        "Balance question types: factual (who/what/when), conceptual (why/how), procedural",
+        "Cover diverse knowledge domains: science, history, math, everyday common sense",
+        "Mix short one-sentence answers with longer explanatory responses",
+        "Add multi-hop questions that require chaining two or more facts",
+        "Include graceful 'I don't know' examples for clearly out-of-scope questions",
+    ],
+    "classification": [
+        "Ensure balanced classes — severe imbalance degrades minority-class performance",
+        "Cover the full expected label set, including boundary and ambiguous cases",
+        "Add genuinely ambiguous examples that sit near decision boundaries",
+        "Augment under-represented classes with paraphrased or reworded variants",
+    ],
+    "conversation": [
+        "Include multi-turn exchanges, not just single Q&A pairs",
+        "Vary conversation depth: 2-turn, 4-turn, and longer threads",
+        "Add clarification and follow-up question patterns",
+        "Include graceful refusal examples for out-of-scope requests",
+        "Ensure consistent assistant persona and tone across all conversations",
+    ],
+    "general": [
+        "Group records by task type for a cleaner, more consistent training signal",
+        "Standardise instruction phrasing — mixing imperatives and questions can weaken training",
+        "Review output length variance — high variance often signals inconsistent quality",
+        "Consider adding a task_type metadata field to enable stratified sampling",
+    ],
+}
+
 
 # ---------------------------------------------------------------------------
 # Config helpers
@@ -21,13 +110,17 @@ _LABEL_FIELDS = ["label", "category", "class", "target"]
 def _default_config() -> Dict[str, Any]:
     return {
         "weights": {
-            "json_format": 0.10,
-            "field_consistency": 0.20,
-            "missing_values": 0.20,
-            "duplicates": 0.15,
-            "near_duplicates": 0.10,
-            "text_length": 0.10,
-            "label_quality": 0.15,
+            "json_format": 0.08,
+            "field_consistency": 0.16,
+            "missing_values": 0.16,
+            "duplicates": 0.12,
+            "near_duplicates": 0.08,
+            "output_diversity": 0.07,
+            "text_length": 0.07,
+            "token_length": 0.07,
+            "instruction_quality": 0.05,
+            "language_consistency": 0.04,
+            "label_quality": 0.10,
         },
         "thresholds": {
             "field_consistency_pass": 0.95,
@@ -39,6 +132,8 @@ def _default_config() -> Dict[str, Any]:
             "near_duplicate_sample": 500,
             "min_text_words": 3,
             "max_text_words": 2000,
+            "max_token_estimate": 2048,
+            "min_instruction_words": 4,
         },
         "score_bands": {
             "ready": 90,
@@ -100,6 +195,159 @@ def detect_format(data: List[Dict[str, Any]]) -> str:
     if "prompt" in keys and "completion" in keys:
         return "prompt_completion"
     return "generic"
+
+
+def _extract_user_texts(data: List[Dict[str, Any]], limit: int = 50) -> List[str]:
+    """Extract the primary user-facing text from each record, format-aware."""
+    fmt = detect_format(data)
+    texts: List[str] = []
+    for item in data[:limit]:
+        text = ""
+        if fmt == "alpaca":
+            text = item.get("instruction", "")
+        elif fmt == "chatml":
+            for msg in item.get("messages", []):
+                if msg.get("role") == "user":
+                    text = msg.get("content", "")
+                    break
+        elif fmt == "prompt_completion":
+            text = item.get("prompt", "")
+        elif fmt == "sharegpt":
+            for conv in item.get("conversations", []):
+                if conv.get("from") == "human":
+                    text = conv.get("value", "")
+                    break
+        else:
+            for field in _TEXT_FIELDS:
+                val = item.get(field, "")
+                if isinstance(val, str) and val.strip():
+                    text = val
+                    break
+        if text:
+            texts.append(text.lower())
+    return texts
+
+
+def detect_domain(data: List[Dict[str, Any]]) -> Tuple[str, float]:
+    """Detect the subject-matter domain of a dataset from content analysis.
+
+    Returns ``(domain, confidence)`` where *domain* is one of:
+    ``coding`` | ``translation`` | ``summarization`` | ``qa`` |
+    ``classification`` | ``conversation`` | ``general``
+    and *confidence* is a float in [0, 1].
+    """
+    if not data:
+        return "unknown", 0.0
+
+    fmt = detect_format(data)
+
+    # Classification datasets are identified by the presence of a label field.
+    if any(field in data[0] for field in _LABEL_FIELDS):
+        return "classification", 0.9
+
+    texts = _extract_user_texts(data)
+    if not texts:
+        return "unknown", 0.0
+
+    joined = " ".join(texts)
+
+    # Score each domain by keyword hit-rate.
+    scores: Dict[str, float] = {
+        domain: sum(1 for kw in kws if kw in joined) / len(kws)
+        for domain, kws in _DOMAIN_KEYWORDS.items()
+    }
+
+    best = max(scores, key=scores.get)
+    best_score = scores[best]
+
+    if best_score < 0.04:
+        # Not enough content signal — fall back on structural format.
+        return ("conversation", 0.7) if fmt in ("chatml", "sharegpt") else ("general", 0.3)
+
+    return best, round(min(best_score * 5, 1.0), 2)
+
+
+def get_domain_coverage(data: List[Dict[str, Any]], domain: str) -> Dict[str, Any]:
+    """Return domain-specific coverage statistics for the dataset.
+
+    The returned dict shape varies by domain and is consumed by the
+    ``analyse`` CLI command to surface what the dataset is lacking.
+    """
+    texts = _extract_user_texts(data, limit=100)
+    if not texts:
+        return {}
+
+    joined = " ".join(texts)
+
+    if domain == "coding":
+        language_patterns: Dict[str, List[str]] = {
+            "Python":     ["python", "def ", ".py", "import ", "pip "],
+            "JavaScript": ["javascript", "const ", "let ", "=>", ".js", "node"],
+            "SQL":        ["sql", "select ", "insert into", "update ", "from "],
+            "Java":       ["java", "public class", "system.out", ".java"],
+            "Bash/Shell": ["bash", "shell", "#!/bin/", "echo ", "grep "],
+            "TypeScript": ["typescript", ": string", ": number", "interface "],
+            "Rust":       ["rust", "fn ", "let mut", "println!"],
+        }
+        languages = [
+            lang for lang, kws in language_patterns.items()
+            if any(kw in joined for kw in kws)
+        ]
+        task_types = {
+            "write / implement": sum(1 for t in texts if any(
+                kw in t for kw in ["write", "implement", "create", "build", "generate"]
+            )),
+            "debug / fix": sum(1 for t in texts if any(
+                kw in t for kw in ["debug", "fix", "bug", "error", "wrong", "mistake"]
+            )),
+            "explain / analyse": sum(1 for t in texts if any(
+                kw in t for kw in ["explain", "what does", "how does", "analyse", "analyze"]
+            )),
+            "refactor / optimise": sum(1 for t in texts if any(
+                kw in t for kw in ["refactor", "optimise", "optimize", "improve", "clean", "simplify"]
+            )),
+        }
+        return {
+            "languages_detected": languages,
+            "language_diversity": len(languages),
+            "task_type_counts": task_types,
+            "has_edge_cases": any(kw in joined for kw in [
+                "edge case", "empty list", "none", "null", "zero", "overflow", "boundary", "empty string",
+            ]),
+            "has_error_handling": any(kw in joined for kw in [
+                "exception", "try", "except", "catch", "raise", "error handling", "valueerror",
+            ]),
+        }
+
+    if domain == "qa":
+        starters = {"what": 0, "who": 0, "how": 0, "why": 0, "when": 0, "where": 0}
+        for t in texts:
+            for s in starters:
+                if t.startswith(s):
+                    starters[s] += 1
+                    break
+        return {
+            "question_type_distribution": {k: v for k, v in starters.items() if v > 0},
+            "question_type_diversity": sum(1 for v in starters.values() if v > 0),
+        }
+
+    if domain == "translation":
+        lang_signals: Dict[str, List[str]] = {
+            "French":     ["french", "français", "bonjour", "le ", "la "],
+            "Spanish":    ["spanish", "español", "hola", "buenos"],
+            "German":     ["german", "deutsch", "guten"],
+            "Chinese":    ["chinese", "mandarin", "pinyin"],
+            "Japanese":   ["japanese"],
+            "Arabic":     ["arabic"],
+            "Portuguese": ["portuguese"],
+        }
+        langs = [lang for lang, kws in lang_signals.items() if any(kw in joined for kw in kws)]
+        return {
+            "target_languages_detected": langs,
+            "language_pair_count": len(langs),
+        }
+
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +417,11 @@ def check_missing_values(
     pass_t = cfg.get("missing_values_pass", 0.95)
     soft_t = cfg.get("missing_values_soft", 0.80)
 
+    # Exclude fields that are structurally optional for the detected format so
+    # that e.g. an empty Alpaca `input` does not produce a false-positive failure.
+    fmt = detect_format(data)
+    optional_fields = _FORMAT_OPTIONAL_FIELDS.get(fmt, set())
+
     total_fields = 0
     missing_count = 0
     affected_rows: List[Dict] = []
@@ -176,6 +429,8 @@ def check_missing_values(
     for i, item in enumerate(data):
         row_missing = []
         for key, value in item.items():
+            if key in optional_fields:
+                continue
             total_fields += 1
             if value is None or (isinstance(value, str) and not value.strip()):
                 missing_count += 1
@@ -185,21 +440,27 @@ def check_missing_values(
 
     completeness = 1 - (missing_count / total_fields) if total_fields > 0 else 0.0
 
+    optional_note = (
+        f" ('{', '.join(sorted(optional_fields))}' excluded as optional)"
+        if optional_fields else ""
+    )
+
     details = {
         "total_fields_checked": total_fields,
         "empty_field_count": missing_count,
         "total_affected_rows": len(affected_rows),
         "affected_rows": affected_rows[:20],
+        "skipped_optional_fields": sorted(optional_fields),
     }
 
     if completeness >= pass_t:
-        return True, f"High completeness ({completeness*100:.1f}%)", completeness, details
+        return True, f"High completeness ({completeness*100:.1f}%){optional_note}", completeness, details
     elif completeness >= soft_t:
         score = completeness * 0.85
-        return True, f"Acceptable completeness ({completeness*100:.1f}%)", score, details
+        return True, f"Acceptable completeness ({completeness*100:.1f}%){optional_note}", score, details
     else:
         score = completeness * 0.5
-        return False, f"Low completeness ({completeness*100:.1f}%)", score, details
+        return False, f"Low completeness ({completeness*100:.1f}%){optional_note}", score, details
 
 
 def check_duplicates(
@@ -281,11 +542,17 @@ def check_near_duplicates(
             if not union:
                 continue
             sim = len(word_sets[i] & word_sets[j]) / len(union)
-            # Skip similarity == 1.0 (exact duplicates already handled)
-            if threshold <= sim < 1.0:
-                near_dup_pairs.append(
-                    {"row1": i + 1, "row2": j + 1, "similarity": round(sim, 3)}
-                )
+            if sim < threshold:
+                continue
+            # At sim == 1.0 the primary text fields are identical. Only flag
+            # this pair if the full records differ — byte-identical records are
+            # exact duplicates already handled by check_duplicates and must not
+            # be double-counted here.
+            if sim == 1.0 and json.dumps(data[i], sort_keys=True) == json.dumps(data[j], sort_keys=True):
+                continue
+            near_dup_pairs.append(
+                {"row1": i + 1, "row2": j + 1, "similarity": round(sim, 3)}
+            )
 
     total_pairs = check_n * (check_n - 1) / 2
     near_dup_ratio = len(near_dup_pairs) / total_pairs if total_pairs > 0 else 0.0
@@ -404,6 +671,293 @@ def check_label_quality(
     return True, f"Balanced labels ({len(unique_labels)} classes)", 1.0, details
 
 
+def _extract_output_text(item: Dict[str, Any]) -> str:
+    """Return the output/completion/assistant text from a record, format-aware."""
+    for field in ("output", "completion", "answer"):
+        val = item.get(field, "")
+        if isinstance(val, str) and val.strip():
+            return val.lower()
+    # ChatML: last assistant message
+    for msg in reversed(item.get("messages", [])):
+        if msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if isinstance(content, str) and content.strip():
+                return content.lower()
+    # ShareGPT: last gpt/assistant turn
+    for conv in reversed(item.get("conversations", [])):
+        if conv.get("from") in ("gpt", "assistant"):
+            val = conv.get("value", "")
+            if isinstance(val, str) and val.strip():
+                return val.lower()
+    return ""
+
+
+def _estimate_record_tokens(item: Dict[str, Any]) -> int:
+    """Estimate token count for a record using word_count × 1.3 heuristic."""
+    _ALL_FIELDS = ("instruction", "input", "output", "text", "prompt", "completion", "question", "answer")
+    words = sum(len(str(item.get(f, "")).split()) for f in _ALL_FIELDS if item.get(f))
+    for msg in item.get("messages", []):
+        words += len(str(msg.get("content", "")).split())
+    for conv in item.get("conversations", []):
+        words += len(str(conv.get("value", "") or conv.get("text", "")).split())
+    return int(words * 1.3)
+
+
+def check_output_diversity(
+    data: List[Dict[str, Any]], config: Dict = None
+) -> Tuple[bool, str, float, Dict]:
+    """Detect near-duplicate *outputs* using Jaccard similarity.
+
+    Two records with different instructions but nearly identical outputs
+    (e.g. the same generated code block repeated) waste training signal.
+    Complements check_near_duplicates, which only inspects input fields.
+    """
+    if not data or len(data) < 2:
+        return True, "Too few records to check output diversity", 1.0, {}
+
+    cfg = (config or _default_config())["thresholds"]
+    threshold = cfg.get("near_duplicate_similarity", 0.85)
+    sample_size = int(cfg.get("near_duplicate_sample", 500))
+    check_n = min(len(data), sample_size)
+
+    output_sets: List[set] = []
+    for item in data[:check_n]:
+        text = _extract_output_text(item)
+        output_sets.append(set(text.split()) if text else set())
+
+    # If no output field is present at all, the check is not applicable
+    if all(not s for s in output_sets):
+        return True, "No output field found (check not applicable)", 1.0, {"total_similar_output_pairs": 0}
+
+    similar_pairs: List[Dict] = []
+    for i in range(check_n):
+        if not output_sets[i]:
+            continue
+        for j in range(i + 1, check_n):
+            if not output_sets[j]:
+                continue
+            union = output_sets[i] | output_sets[j]
+            if not union:
+                continue
+            sim = len(output_sets[i] & output_sets[j]) / len(union)
+            if sim < threshold:
+                continue
+            if sim == 1.0 and json.dumps(data[i], sort_keys=True) == json.dumps(data[j], sort_keys=True):
+                continue  # exact duplicate — already handled by check_duplicates
+            similar_pairs.append({"row1": i + 1, "row2": j + 1, "similarity": round(sim, 3)})
+
+    total_pairs = check_n * (check_n - 1) / 2
+    dup_ratio = len(similar_pairs) / total_pairs if total_pairs > 0 else 0.0
+
+    details = {
+        "similarity_threshold": threshold,
+        "records_checked": check_n,
+        "total_similar_output_pairs": len(similar_pairs),
+        "similar_output_pairs": similar_pairs[:20],
+    }
+
+    if not similar_pairs:
+        return True, "Output fields are diverse (no near-duplicate outputs detected)", 1.0, details
+    n = len(similar_pairs)
+    pair_word = "pair" if n == 1 else "pairs"
+    if dup_ratio < 0.05:
+        return True, f"Few similar outputs ({n} {pair_word})", max(0.5, 1.0 - dup_ratio * 5), details
+    return False, f"Many similar outputs ({n} {pair_word})", max(0.1, 1.0 - dup_ratio * 10), details
+
+
+def check_token_length(
+    data: List[Dict[str, Any]], config: Dict = None
+) -> Tuple[bool, str, float, Dict]:
+    """Flag records whose estimated token count exceeds the context-window limit.
+
+    Uses a word_count × 1.3 heuristic (average English word ≈ 1.3 tokens).
+    All text fields in a record are summed so the full prompt+response is checked.
+    """
+    if not data:
+        return False, "Empty dataset", 0.0, {}
+
+    cfg = (config or _default_config())["thresholds"]
+    max_tokens = int(cfg.get("max_token_estimate", 2048))
+
+    estimates: List[int] = []
+    overflow_rows: List[Dict] = []
+    for i, item in enumerate(data):
+        est = _estimate_record_tokens(item)
+        estimates.append(est)
+        if est > max_tokens:
+            overflow_rows.append({"row": i + 1, "estimated_tokens": est})
+
+    avg_tokens = sum(estimates) / len(estimates) if estimates else 0.0
+    overflow_ratio = len(overflow_rows) / len(data)
+    score = max(0.0, 1.0 - overflow_ratio * 2)
+
+    details = {
+        "max_token_estimate": max_tokens,
+        "avg_estimated_tokens": round(avg_tokens),
+        "total_overflow_rows": len(overflow_rows),
+        "overflow_rows": overflow_rows[:20],
+    }
+
+    if not overflow_rows:
+        return True, f"No token overflows (avg {avg_tokens:.0f} est. tokens, limit {max_tokens})", 1.0, details
+    n = len(overflow_rows)
+    rec_word = "record" if n == 1 else "records"
+    if overflow_ratio < 0.05:
+        return True, f"Few token overflows ({n} {rec_word} exceed ~{max_tokens} tokens)", score, details
+    return False, f"Token overflows detected ({n} {rec_word} exceed ~{max_tokens} tokens)", score, details
+
+
+# Patterns that signal vague, under-specified instructions
+_VAGUE_PATTERNS: List[str] = [
+    "help me", "do something", "write something", "tell me something",
+    "please help", "make something", "i need help", "can you do",
+    "do this for me", "just do it",
+]
+
+# Markers that suggest an instruction bundles multiple unrelated tasks
+_MULTI_TASK_MARKERS: List[str] = [
+    " and also ", " additionally, ", " furthermore, ", " also please ",
+    " as well as this", " on top of that", " at the same time ",
+]
+
+
+def check_instruction_quality(
+    data: List[Dict[str, Any]], config: Dict = None
+) -> Tuple[bool, str, float, Dict]:
+    """Heuristically flag low-quality instructions.
+
+    Checks for:
+    - Vague instructions that match known low-signal patterns ("help me", etc.)
+    - Multi-task instructions that bundle unrelated requests in one record
+    - Instructions shorter than ``min_instruction_words``
+
+    Only applied to datasets with an explicit ``instruction`` field (Alpaca format).
+    Generic or ChatML datasets return a pass so quality scores are not polluted
+    by false positives on short questions or conversation turns.
+    """
+    if not data:
+        return False, "Empty dataset", 0.0, {}
+
+    fmt = detect_format(data)
+    if fmt != "alpaca":
+        return True, "Instruction quality check applies to Alpaca format only (skipped)", 1.0, {}
+
+    cfg = (config or _default_config())["thresholds"]
+    min_words = int(cfg.get("min_instruction_words", 4))
+
+    vague_rows: List[Dict] = []
+    multi_task_rows: List[Dict] = []
+    short_rows: List[Dict] = []
+
+    for i, item in enumerate(data):
+        instruction = item.get("instruction", "")
+        if not isinstance(instruction, str) or not instruction.strip():
+            continue
+        text = instruction.lower()
+        word_count = len(text.split())
+
+        if word_count < min_words:
+            short_rows.append({"row": i + 1, "words": word_count, "text": instruction[:80]})
+        if any(pattern in text for pattern in _VAGUE_PATTERNS) and word_count < 8:
+            vague_rows.append({"row": i + 1, "text": instruction[:80]})
+        if any(marker in text for marker in _MULTI_TASK_MARKERS):
+            multi_task_rows.append({"row": i + 1, "text": instruction[:80]})
+
+    flagged_set = (
+        {r["row"] for r in vague_rows}
+        | {r["row"] for r in multi_task_rows}
+        | {r["row"] for r in short_rows}
+    )
+    total_flagged = len(flagged_set)
+    flag_ratio = total_flagged / len(data)
+    score = max(0.0, 1.0 - flag_ratio * 2)
+
+    details = {
+        "total_flagged": total_flagged,
+        "vague_rows": vague_rows[:10],
+        "multi_task_rows": multi_task_rows[:10],
+        "short_instruction_rows": short_rows[:10],
+        "min_instruction_words": min_words,
+    }
+
+    if total_flagged == 0:
+        return True, "Instruction quality looks good (no vague, multi-task, or too-short instructions found)", 1.0, details
+    n_word = "record" if total_flagged == 1 else "records"
+    if flag_ratio < 0.10:
+        return True, f"Minor instruction quality issues ({total_flagged} {n_word} flagged)", score, details
+    return False, f"Instruction quality issues detected ({total_flagged} {n_word} flagged)", score, details
+
+
+def check_language_consistency(
+    data: List[Dict[str, Any]], config: Dict = None
+) -> Tuple[bool, str, float, Dict]:
+    """Detect unexpected language switches using a non-ASCII character ratio heuristic.
+
+    No external libraries required. Computes the non-ASCII ratio for each record's
+    primary text, determines the dataset's dominant script (ASCII-heavy = Latin/code,
+    non-ASCII-heavy = CJK/Arabic/etc.), then flags records that deviate significantly.
+    """
+    if not data:
+        return False, "Empty dataset", 0.0, {}
+
+    def non_ascii_ratio(text: str) -> float:
+        return sum(1 for c in text if ord(c) > 127) / len(text) if text else 0.0
+
+    ratios: List[Tuple[int, float]] = []
+    for i, item in enumerate(data):
+        text = ""
+        for field in _TEXT_FIELDS:
+            val = item.get(field, "")
+            if isinstance(val, str) and val.strip():
+                text = val
+                break
+        if not text and "messages" in item:
+            for msg in item.get("messages", []):
+                content = msg.get("content", "")
+                if content:
+                    text = content
+                    break
+        if not text and "conversations" in item:
+            for conv in item.get("conversations", []):
+                val = conv.get("value", "")
+                if val:
+                    text = val
+                    break
+        if text:
+            ratios.append((i + 1, non_ascii_ratio(text)))
+
+    if not ratios:
+        return True, "No text content to check language consistency", 1.0, {}
+
+    avg_ratio = sum(r for _, r in ratios) / len(ratios)
+    dominant = "non-ASCII" if avg_ratio > 0.40 else "ASCII"
+
+    # Flag records that deviate from the dominant script
+    if dominant == "ASCII":
+        anomalous = [(row, r) for row, r in ratios if r > 0.30]
+    else:
+        anomalous = [(row, r) for row, r in ratios if r < 0.05]
+
+    anomaly_rows = [{"row": row, "non_ascii_ratio": round(r, 3)} for row, r in anomalous]
+    anomaly_ratio = len(anomaly_rows) / len(data)
+    score = max(0.0, 1.0 - anomaly_ratio * 3)
+
+    details = {
+        "avg_non_ascii_ratio": round(avg_ratio, 3),
+        "dominant_script": dominant,
+        "total_anomalous_rows": len(anomaly_rows),
+        "anomalous_rows": anomaly_rows[:20],
+    }
+
+    if not anomaly_rows:
+        return True, f"Language is consistent throughout (dominant: {dominant})", 1.0, details
+    n = len(anomaly_rows)
+    n_word = "record" if n == 1 else "records"
+    if anomaly_ratio < 0.05:
+        return True, f"Minor language inconsistencies ({n} {n_word} may switch script)", score, details
+    return False, f"Language inconsistencies detected ({n} {n_word} appear to switch script)", score, details
+
+
 # ---------------------------------------------------------------------------
 # Master scoring function
 # ---------------------------------------------------------------------------
@@ -421,13 +975,17 @@ def calculate_quality_score(
     bands = cfg.get("score_bands", {"ready": 90, "caution": 75, "needs_work": 50})
 
     check_runners = [
-        ("json_format",        lambda: check_json_format(data)),
-        ("field_consistency",  lambda: check_field_consistency(data, cfg)),
-        ("missing_values",     lambda: check_missing_values(data, cfg)),
-        ("duplicates",         lambda: check_duplicates(data, cfg)),
-        ("near_duplicates",    lambda: check_near_duplicates(data, cfg)),
-        ("text_length",        lambda: check_text_length(data, cfg)),
-        ("label_quality",      lambda: check_label_quality(data, cfg)),
+        ("json_format",          lambda: check_json_format(data)),
+        ("field_consistency",    lambda: check_field_consistency(data, cfg)),
+        ("missing_values",       lambda: check_missing_values(data, cfg)),
+        ("duplicates",           lambda: check_duplicates(data, cfg)),
+        ("near_duplicates",      lambda: check_near_duplicates(data, cfg)),
+        ("output_diversity",     lambda: check_output_diversity(data, cfg)),
+        ("text_length",          lambda: check_text_length(data, cfg)),
+        ("token_length",         lambda: check_token_length(data, cfg)),
+        ("instruction_quality",  lambda: check_instruction_quality(data, cfg)),
+        ("language_consistency", lambda: check_language_consistency(data, cfg)),
+        ("label_quality",        lambda: check_label_quality(data, cfg)),
     ]
 
     default_w = 1.0 / len(check_runners)
