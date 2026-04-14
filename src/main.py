@@ -95,6 +95,9 @@ def score_dataset(
             if output_file:
                 Path(output_file).write_text(report, encoding="utf-8")
                 _err.print(f"HTML report saved to: [cyan]{output_file}[/cyan]")
+                json_file = Path(output_file).with_suffix(".json")
+                Path(json_file).write_text(generate_json_report(score_result, filepath), encoding="utf-8")
+                _err.print(f"JSON report saved to: [cyan]{json_file}[/cyan]")
             else:
                 _err.print("[yellow]HTML report generated — use --output <file> to save it.[/yellow]")
 
