@@ -1,10 +1,20 @@
 """Dataset quality checks and scoring logic."""
 
 import json
+import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+
+# Warn once if datasets/huggingface_hub not available (optional dep)
+try:
+    from datasets import load_dataset as _hf_load_dataset  # type: ignore
+    _HF_AVAILABLE = True
+except ImportError:
+    _HF_AVAILABLE = False
+
+_LARGE_DATASET_WARN = 50_000  # warn when loading more than this many records
 
 DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
@@ -123,22 +133,22 @@ def _default_config() -> Dict[str, Any]:
             "label_quality": 0.10,
         },
         "thresholds": {
-            "field_consistency_pass": 0.95,
-            "field_consistency_soft": 0.80,
-            "missing_values_pass": 0.95,
-            "missing_values_soft": 0.80,
-            "duplicate_soft": 0.90,
-            "near_duplicate_similarity": 0.85,
+            "field_consistency_pass": 0.97,
+            "field_consistency_soft": 0.90,
+            "missing_values_pass": 0.98,
+            "missing_values_soft": 0.92,
+            "duplicate_soft": 0.97,
+            "near_duplicate_similarity": 0.72,
             "near_duplicate_sample": 500,
-            "min_text_words": 3,
+            "min_text_words": 5,
             "max_text_words": 2000,
             "max_token_estimate": 2048,
-            "min_instruction_words": 4,
+            "min_instruction_words": 5,
         },
         "score_bands": {
-            "ready": 90,
-            "caution": 75,
-            "needs_work": 50,
+            "ready": 92,
+            "caution": 80,
+            "needs_work": 60,
         },
     }
 
@@ -166,15 +176,111 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
 # Dataset loader
 # ---------------------------------------------------------------------------
 
-def load_dataset(filepath: str) -> List[Dict[str, Any]]:
-    """Load a JSONL dataset file and return a list of records."""
+def load_dataset(filepath: str, limit: int = 0) -> List[Dict[str, Any]]:
+    """Load a JSONL dataset file and return a list of records.
+
+    Args:
+        filepath: Path to JSONL file.
+        limit: If > 0, stop after this many records (useful for previewing large files).
+    """
     data = []
     with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
-                data.append(json.loads(line))
+            if not line:
+                continue
+            data.append(json.loads(line))
+            if limit > 0 and len(data) >= limit:
+                break
+    if len(data) >= _LARGE_DATASET_WARN and limit == 0:
+        warnings.warn(
+            f"Loaded {len(data):,} records. Near-duplicate checks are capped at "
+            f"{500} records for performance. Use --limit to reduce memory usage.",
+            stacklevel=2,
+        )
     return data
+
+
+def load_hf_dataset(
+    dataset_name: str,
+    split: str = "train",
+    config_name: Optional[str] = None,
+    limit: int = 1000,
+    prompt_field: Optional[str] = None,
+    completion_field: Optional[str] = None,
+    filter_field: Optional[str] = None,
+    filter_value: Optional[str] = None,
+    streaming: bool = True,
+) -> List[Dict[str, Any]]:
+    """Download a HuggingFace dataset and return records as plain dicts.
+
+    If ``prompt_field`` and ``completion_field`` are given the returned records
+    will have ``{"prompt": ..., "completion": ...}`` keys, making them
+    directly scoreable by the quality checker.  Otherwise the raw HF fields
+    are preserved.
+
+    Args:
+        dataset_name: HuggingFace dataset identifier, e.g. ``"open-index/hacker-news"``.
+        split: Dataset split (``"train"``, ``"test"``, …).
+        config_name: Named configuration / subset, if any.
+        limit: Maximum number of records to load (default 1000).
+        prompt_field: HF column to map to ``"prompt"``.
+        completion_field: HF column to map to ``"completion"``.
+        filter_field: Column to filter on (e.g. ``"type"``).
+        filter_value: Keep only rows where ``filter_field == filter_value``.
+        streaming: Use HF streaming mode to avoid downloading the full dataset.
+    """
+    if not _HF_AVAILABLE:
+        raise RuntimeError(
+            "The 'datasets' package is required for HuggingFace support.\n"
+            "Install it with:  pip install datasets"
+        )
+
+    load_kwargs: Dict[str, Any] = {"streaming": streaming}
+    if config_name:
+        load_kwargs["name"] = config_name
+
+    hf_ds = _hf_load_dataset(dataset_name, split=split, **load_kwargs)
+
+    records: List[Dict[str, Any]] = []
+    for row in hf_ds:
+        if filter_field and filter_value is not None:
+            row_val = str(row.get(filter_field, ""))
+            if row_val != str(filter_value):
+                continue
+
+        if prompt_field or completion_field:
+            record: Dict[str, Any] = {}
+            if prompt_field:
+                val = row.get(prompt_field)
+                record["prompt"] = str(val) if val is not None else ""
+            if completion_field:
+                val = row.get(completion_field)
+                record["completion"] = str(val) if val is not None else ""
+            # Carry a few useful metadata fields; ensure JSON-serialisable types
+            for meta in ("id", "score", "type", "by", "time"):
+                if meta in row and meta not in record:
+                    val = row[meta]
+                    record[meta] = str(val) if not isinstance(val, (str, int, float, bool, type(None))) else val
+        else:
+            # Flatten: convert every value to a JSON-serialisable type
+            record = {}
+            for k, v in row.items():
+                if isinstance(v, (str, int, float, bool, type(None))):
+                    record[k] = v
+                else:
+                    record[k] = str(v)
+
+        # Skip records where both main text fields are empty
+        if not any(record.get(f, "").strip() for f in ("prompt", "text", "title", "instruction") if isinstance(record.get(f), str)):
+            if not any(isinstance(record.get(f), str) and record.get(f, "").strip() for f in record):
+                continue
+
+        records.append(record)
+        if len(records) >= limit:
+            break
+
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -182,19 +288,24 @@ def load_dataset(filepath: str) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def detect_format(data: List[Dict[str, Any]]) -> str:
-    """Detect the schema format of the dataset from the first record's keys."""
+    """Detect the schema format from the first few records (majority vote)."""
     if not data:
         return "unknown"
-    keys = set(data[0].keys())
-    if "messages" in keys:
-        return "chatml"
-    if "conversations" in keys:
-        return "sharegpt"
-    if "instruction" in keys and "output" in keys:
-        return "alpaca"
-    if "prompt" in keys and "completion" in keys:
-        return "prompt_completion"
-    return "generic"
+    counts: Dict[str, int] = {}
+    for record in data[:min(5, len(data))]:
+        keys = set(record.keys())
+        if "messages" in keys:
+            fmt = "chatml"
+        elif "conversations" in keys:
+            fmt = "sharegpt"
+        elif "instruction" in keys and "output" in keys:
+            fmt = "alpaca"
+        elif "prompt" in keys and "completion" in keys:
+            fmt = "prompt_completion"
+        else:
+            fmt = "generic"
+        counts[fmt] = counts.get(fmt, 0) + 1
+    return max(counts, key=counts.get)
 
 
 def _extract_user_texts(data: List[Dict[str, Any]], limit: int = 50) -> List[str]:
@@ -226,6 +337,32 @@ def _extract_user_texts(data: List[Dict[str, Any]], limit: int = 50) -> List[str
         if text:
             texts.append(text.lower())
     return texts
+
+
+def _extract_text_for_record(item: Dict[str, Any], fmt: str) -> str:
+    """Return the primary user-facing text for a single record, format-aware."""
+    text = ""
+    if fmt == "alpaca":
+        text = item.get("instruction", "")
+    elif fmt == "chatml":
+        for msg in item.get("messages", []):
+            if msg.get("role") == "user":
+                text = msg.get("content", "")
+                break
+    elif fmt == "prompt_completion":
+        text = item.get("prompt", "")
+    elif fmt == "sharegpt":
+        for conv in item.get("conversations", []):
+            if conv.get("from") == "human":
+                text = conv.get("value", "")
+                break
+    else:
+        for field in _TEXT_FIELDS:
+            val = item.get(field)
+            if isinstance(val, str) and val.strip():
+                text = val
+                break
+    return text
 
 
 def detect_domain(data: List[Dict[str, Any]]) -> Tuple[str, float]:
@@ -399,10 +536,10 @@ def check_field_consistency(
     if ratio >= pass_t:
         return True, "All records have consistent fields", 1.0, details
     elif ratio >= soft_t:
-        score = ratio * 0.85
+        score = ratio * 0.65          # tightened from 0.85
         return True, f"Most records consistent ({ratio*100:.1f}%)", score, details
     else:
-        score = ratio * 0.5
+        score = ratio * 0.35          # tightened from 0.50
         return False, f"Inconsistent fields ({ratio*100:.1f}% complete)", score, details
 
 
@@ -435,6 +572,22 @@ def check_missing_values(
             if value is None or (isinstance(value, str) and not value.strip()):
                 missing_count += 1
                 row_missing.append(key)
+            elif key == "messages" and isinstance(value, list):
+                # ChatML: flag turns with empty content
+                for turn in value:
+                    if isinstance(turn, dict):
+                        content = turn.get("content")
+                        if content is None or (isinstance(content, str) and not content.strip()):
+                            missing_count += 1
+                            row_missing.append(f"messages[].content (role={turn.get('role', '?')})")
+            elif key == "conversations" and isinstance(value, list):
+                # ShareGPT: flag turns with empty value
+                for turn in value:
+                    if isinstance(turn, dict):
+                        val = turn.get("value")
+                        if val is None or (isinstance(val, str) and not val.strip()):
+                            missing_count += 1
+                            row_missing.append(f"conversations[].value (from={turn.get('from', '?')})")
         if row_missing:
             affected_rows.append({"row": i + 1, "empty_fields": row_missing})
 
@@ -456,10 +609,10 @@ def check_missing_values(
     if completeness >= pass_t:
         return True, f"High completeness ({completeness*100:.1f}%){optional_note}", completeness, details
     elif completeness >= soft_t:
-        score = completeness * 0.85
+        score = completeness * 0.65          # tightened from 0.85
         return True, f"Acceptable completeness ({completeness*100:.1f}%){optional_note}", score, details
     else:
-        score = completeness * 0.5
+        score = completeness * 0.35          # tightened from 0.50
         return False, f"Low completeness ({completeness*100:.1f}%){optional_note}", score, details
 
 
@@ -494,10 +647,10 @@ def check_duplicates(
     if uniqueness == 1.0:
         return True, "No exact duplicates found", 1.0, details
     elif uniqueness >= soft_t:
-        score = uniqueness * 0.80
+        score = uniqueness * 0.50          # tightened from 0.80 — even a few dups hurt training
         return True, f"Few duplicates ({len(dup_rows)} found)", score, details
     else:
-        score = uniqueness * 0.40
+        score = uniqueness * 0.25          # tightened from 0.40
         return False, f"Many duplicates ({len(dup_rows)} found)", score, details
 
 
@@ -520,16 +673,12 @@ def check_near_duplicates(
     check_n = min(len(data), sample_size)
     sampled = check_n < len(data)
 
-    # Build word-sets from primary text fields
+    # Build word-sets using format-aware text extraction
+    fmt = detect_format(data)
     word_sets: List[set] = []
     for item in data[:check_n]:
-        text = ""
-        for field in _TEXT_FIELDS:
-            val = item.get(field)
-            if isinstance(val, str) and val.strip():
-                text = val.lower()
-                break
-        word_sets.append(set(text.split()) if text else set())
+        text = _extract_text_for_record(item, fmt)
+        word_sets.append(set(text.lower().split()) if text else set())
 
     near_dup_pairs: List[Dict] = []
     for i in range(check_n):
@@ -569,11 +718,11 @@ def check_near_duplicates(
         return True, f"No near-duplicates found{suffix}", 1.0, details
     n_pairs = len(near_dup_pairs)
     pair_word = "pair" if n_pairs == 1 else "pairs"
-    if near_dup_ratio < 0.05:
-        score = max(0.5, 1.0 - near_dup_ratio * 5)
+    if near_dup_ratio < 0.03:                        # tightened threshold from 0.05
+        score = max(0.2, 1.0 - near_dup_ratio * 10)  # floor lowered from 0.5; multiplier raised from 5
         return True, f"Few near-duplicates ({n_pairs} {pair_word}){suffix}", score, details
     else:
-        score = max(0.1, 1.0 - near_dup_ratio * 10)
+        score = max(0.05, 1.0 - near_dup_ratio * 15) # floor lowered from 0.1; multiplier raised from 10
         return False, f"Many near-duplicates ({n_pairs} {pair_word}){suffix}", score, details
 
 
@@ -614,7 +763,7 @@ def check_text_length(
     outlier_count = len(too_short) + len(too_long)
     outlier_ratio = outlier_count / len(data)
     avg_len = sum(lengths) / len(lengths)
-    score = max(0.0, 1.0 - outlier_ratio * 2)
+    score = max(0.0, 1.0 - outlier_ratio * 4)    # tightened from *2 — 10% outliers now scores 0.6
 
     details = {
         "avg_word_count": round(avg_len, 1),
@@ -628,7 +777,7 @@ def check_text_length(
     rec_word = "record" if outlier_count == 1 else "records"
     if outlier_ratio == 0:
         return True, f"Good length distribution (avg {avg_len:.1f} words)", 1.0, details
-    elif outlier_ratio < 0.10:
+    elif outlier_ratio < 0.05:                    # tightened from 0.10
         return True, f"Minor length outliers ({outlier_count} {rec_word}, avg {avg_len:.1f} words)", score, details
     else:
         return False, f"Many length outliers ({outlier_count} {rec_word}, avg {avg_len:.1f} words)", score, details
@@ -664,16 +813,18 @@ def check_label_quality(
         "imbalance_ratio": round(imbalance, 2),
     }
 
-    if imbalance > 10:
-        return False, f"Severe label imbalance ({max_c}:{min_c} ratio)", 0.3, details
-    elif imbalance > 5:
-        return True, f"Moderate label imbalance ({len(unique_labels)} classes)", 0.7, details
+    if imbalance > 5:                                                         # tightened from >10
+        return False, f"Severe label imbalance ({max_c}:{min_c} ratio)", 0.15, details  # score 0.3→0.15
+    elif imbalance > 3:                                                       # tightened from >5
+        return True, f"Moderate label imbalance ({len(unique_labels)} classes)", 0.50, details  # score 0.7→0.50
+    elif imbalance > 1.5:
+        return True, f"Slight label imbalance ({len(unique_labels)} classes)", 0.85, details
     return True, f"Balanced labels ({len(unique_labels)} classes)", 1.0, details
 
 
 def _extract_output_text(item: Dict[str, Any]) -> str:
     """Return the output/completion/assistant text from a record, format-aware."""
-    for field in ("output", "completion", "answer"):
+    for field in ("output", "completion", "answer", "response"):  # added "response" for Dolly etc.
         val = item.get(field, "")
         if isinstance(val, str) and val.strip():
             return val.lower()
@@ -760,9 +911,9 @@ def check_output_diversity(
         return True, "Output fields are diverse (no near-duplicate outputs detected)", 1.0, details
     n = len(similar_pairs)
     pair_word = "pair" if n == 1 else "pairs"
-    if dup_ratio < 0.05:
-        return True, f"Few similar outputs ({n} {pair_word})", max(0.5, 1.0 - dup_ratio * 5), details
-    return False, f"Many similar outputs ({n} {pair_word})", max(0.1, 1.0 - dup_ratio * 10), details
+    if dup_ratio < 0.03:                                                              # tightened from 0.05
+        return True, f"Few similar outputs ({n} {pair_word})", max(0.2, 1.0 - dup_ratio * 10), details   # floor 0.5→0.2
+    return False, f"Many similar outputs ({n} {pair_word})", max(0.05, 1.0 - dup_ratio * 15), details    # floor 0.1→0.05
 
 
 def check_token_length(
@@ -789,7 +940,7 @@ def check_token_length(
 
     avg_tokens = sum(estimates) / len(estimates) if estimates else 0.0
     overflow_ratio = len(overflow_rows) / len(data)
-    score = max(0.0, 1.0 - overflow_ratio * 2)
+    score = max(0.0, 1.0 - overflow_ratio * 4)    # tightened from *2
 
     details = {
         "max_token_estimate": max_tokens,
@@ -858,7 +1009,8 @@ def check_instruction_quality(
 
         if word_count < min_words:
             short_rows.append({"row": i + 1, "words": word_count, "text": instruction[:80]})
-        if any(pattern in text for pattern in _VAGUE_PATTERNS) and word_count < 8:
+        # Removed word_count < 8 guard — vague patterns are bad regardless of length
+        if any(pattern in text for pattern in _VAGUE_PATTERNS):
             vague_rows.append({"row": i + 1, "text": instruction[:80]})
         if any(marker in text for marker in _MULTI_TASK_MARKERS):
             multi_task_rows.append({"row": i + 1, "text": instruction[:80]})
@@ -870,7 +1022,7 @@ def check_instruction_quality(
     )
     total_flagged = len(flagged_set)
     flag_ratio = total_flagged / len(data)
-    score = max(0.0, 1.0 - flag_ratio * 2)
+    score = max(0.0, 1.0 - flag_ratio * 3)    # tightened from *2
 
     details = {
         "total_flagged": total_flagged,

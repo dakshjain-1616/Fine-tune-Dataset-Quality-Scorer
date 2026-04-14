@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="480" viewBox="0 0 860 480">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0014"/>
+      <stop offset="100%" stop-color="#140020"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a0028" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#0d0018" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="cardllm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#001a28" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#000d18" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#a855f720"/>
+    </filter>
+    <filter id="shadowblue">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#06b6d420"/>
+    </filter>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a855f7"/>
+    </marker>
+    <marker id="arrowblue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#06b6d4"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="860" height="480" fill="url(#bg)"/>
+
+  <!-- Grid -->
+  <g opacity="0.04" stroke="#a855f7" stroke-width="0.5">
+    <line x1="0" y1="70" x2="860" y2="70"/>
+    <line x1="0" y1="140" x2="860" y2="140"/>
+    <line x1="0" y1="210" x2="860" y2="210"/>
+    <line x1="0" y1="280" x2="860" y2="280"/>
+    <line x1="0" y1="350" x2="860" y2="350"/>
+    <line x1="0" y1="420" x2="860" y2="420"/>
+    <line x1="143" y1="0" x2="143" y2="480"/>
+    <line x1="286" y1="0" x2="286" y2="480"/>
+    <line x1="429" y1="0" x2="429" y2="480"/>
+    <line x1="572" y1="0" x2="572" y2="480"/>
+    <line x1="715" y1="0" x2="715" y2="480"/>
+  </g>
+
+  <!-- Top bar -->
+  <rect x="0" y="0" width="860" height="3" fill="url(#purple)"/>
+
+  <!-- Title -->
+  <text x="430" y="36" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Fine-tune Dataset Quality Scorer</text>
+  <text x="430" y="56" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="12" fill="#a855f780">Automated quality scoring pipeline for LLM fine-tuning datasets</text>
+
+  <!-- ── MAIN PIPELINE ROW (5 nodes, 120px wide, 20px gaps) ────────────── -->
+  <!-- Positions: 20, 160, 300, 440, 580, 720  — node width 120, arrow 20px gap -->
+
+  <!-- Node 1: Dataset Input -->
+  <rect x="20" y="90" width="120" height="135" rx="10" fill="url(#card)" stroke="#a855f7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="80" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#a855f7">📂</text>
+  <text x="80" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">Dataset Input</text>
+  <text x="80" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#a855f799">JSONL · HuggingFace</text>
+  <text x="80" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">5 formats auto-detected</text>
+  <text x="80" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">Alpaca · ChatML</text>
+  <text x="80" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">ShareGPT · Generic</text>
+  <text x="80" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#a855f760">streaming load · --limit</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="142" y1="157" x2="157" y2="157" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Node 2: Quality Checks -->
+  <rect x="160" y="90" width="120" height="135" rx="10" fill="url(#card)" stroke="#9333ea" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="220" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#9333ea">🔬</text>
+  <text x="220" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">Quality Checks</text>
+  <text x="220" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#9333ea99">11 check dimensions</text>
+  <text x="220" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">duplicates · near-dups</text>
+  <text x="220" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">length · token overflow</text>
+  <text x="220" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">label balance · format</text>
+  <text x="220" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#9333ea60">Jaccard sim ≥ 0.72</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="282" y1="157" x2="297" y2="157" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Node 3: Quality Scorer -->
+  <rect x="300" y="90" width="120" height="135" rx="10" fill="url(#card)" stroke="#a855f7" stroke-width="2" filter="url(#shadow)"/>
+  <text x="360" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#a855f7">⭐</text>
+  <text x="360" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">Quality Scorer</text>
+  <text x="360" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#a855f799">0 – 100 score</text>
+  <text x="360" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">11 weighted checks</text>
+  <text x="360" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">READY / CAUTION</text>
+  <text x="360" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">NEEDS WORK / NOT READY</text>
+  <text x="360" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#a855f760">config.yaml tuneable</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="422" y1="157" x2="437" y2="157" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Node 4: Issue Detector -->
+  <rect x="440" y="90" width="120" height="135" rx="10" fill="url(#card)" stroke="#9333ea" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="500" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#9333ea">🚨</text>
+  <text x="500" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">Issue Detector</text>
+  <text x="500" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#9333ea99">row-level findings</text>
+  <text x="500" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">exact row numbers</text>
+  <text x="500" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">score impact ranked</text>
+  <text x="500" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">action plan ordered</text>
+  <text x="500" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#9333ea60">fix · autofix · analyse</text>
+
+  <!-- Arrow 4→5 -->
+  <line x1="562" y1="157" x2="577" y2="157" stroke="#a855f7" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Node 5: Report Output -->
+  <rect x="580" y="90" width="120" height="135" rx="10" fill="url(#card)" stroke="#a855f7" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="640" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#a855f7">📋</text>
+  <text x="640" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">Report Output</text>
+  <text x="640" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#a855f799">Terminal · JSON · HTML</text>
+  <text x="640" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">grade + score summary</text>
+  <text x="640" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">fix recommendations</text>
+  <text x="640" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">Chart.js HTML report</text>
+  <text x="640" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#a855f760">CI/CD --min-score gate</text>
+
+  <!-- ── LLM REVIEW — optional branch below node 3 ─────────────────────── -->
+  <!-- Dashed vertical drop from scorer node -->
+  <line x1="360" y1="227" x2="360" y2="255" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <!-- Horizontal to LLM node -->
+  <line x1="220" y1="270" x2="497" y2="270" stroke="#06b6d4" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>
+
+  <!-- LLM Review node -->
+  <rect x="720" y="90" width="120" height="135" rx="10" fill="url(#cardllm)" stroke="#06b6d4" stroke-width="1.5" filter="url(#shadowblue)"/>
+  <text x="780" y="118" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" fill="#06b6d4">🤖</text>
+  <text x="780" y="139" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">LLM Review</text>
+  <text x="780" y="154" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#06b6d499">optional · semantic</text>
+  <text x="780" y="168" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">clarity · quality</text>
+  <text x="780" y="181" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">coherence 0–10</text>
+  <text x="780" y="194" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">OpenRouter · Anthropic</text>
+  <text x="780" y="215" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7.5" fill="#06b6d460">llm-review --sample 20</text>
+
+  <!-- Arrow from Report → LLM (optional path) -->
+  <line x1="702" y1="157" x2="718" y2="157" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrowblue)"/>
+  <!-- "optional" label -->
+  <text x="710" y="151" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="7" fill="#06b6d460">opt.</text>
+
+  <!-- ── GRADE BANDS ────────────────────────────────────────────────────── -->
+  <rect x="20" y="252" width="680" height="58" rx="8" fill="#1a002880" stroke="#a855f730" stroke-width="1"/>
+  <text x="360" y="270" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" font-weight="700" fill="#a855f7aa" letter-spacing="2">QUALITY GRADES</text>
+
+  <!-- 4 bands: NOT READY 0-59 | NEEDS WORK 60-79 | CAUTION 80-91 | READY 92-100 -->
+  <rect x="32"  y="278" width="155" height="20" rx="4" fill="#ef444440" stroke="#ef444460" stroke-width="1"/>
+  <text x="110" y="292" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" fill="#ef4444">NOT READY · 0 – 59</text>
+
+  <rect x="196" y="278" width="155" height="20" rx="4" fill="#f9731440" stroke="#f9731460" stroke-width="1"/>
+  <text x="274" y="292" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" fill="#f97316">NEEDS WORK · 60 – 79</text>
+
+  <rect x="360" y="278" width="155" height="20" rx="4" fill="#eab30840" stroke="#eab30860" stroke-width="1"/>
+  <text x="438" y="292" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" fill="#eab308">CAUTION · 80 – 91</text>
+
+  <rect x="524" y="278" width="164" height="20" rx="4" fill="#a855f740" stroke="#a855f760" stroke-width="1"/>
+  <text x="606" y="292" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" fill="#a855f7">READY · 92 – 100</text>
+
+  <!-- ── STATS ROW ───────────────────────────────────────────────────────── -->
+  <g transform="translate(20, 326)">
+    <rect width="158" height="68" rx="8" fill="#1a002880" stroke="#a855f720" stroke-width="1"/>
+    <text x="79" y="22" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#a855f7">Checks</text>
+    <text x="79" y="44" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">11</text>
+    <text x="79" y="60" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff60">heuristic + LLM optional</text>
+  </g>
+  <g transform="translate(190, 326)">
+    <rect width="158" height="68" rx="8" fill="#1a002880" stroke="#a855f720" stroke-width="1"/>
+    <text x="79" y="22" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#9333ea">Commands</text>
+    <text x="79" y="44" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">10</text>
+    <text x="79" y="60" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff60">score·fetch·llm-review…</text>
+  </g>
+  <g transform="translate(360, 326)">
+    <rect width="158" height="68" rx="8" fill="#1a002880" stroke="#a855f720" stroke-width="1"/>
+    <text x="79" y="22" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#a855f7">Throughput</text>
+    <text x="79" y="44" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">10K+</text>
+    <text x="79" y="60" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff60">HF streaming · --limit</text>
+  </g>
+  <g transform="translate(530, 326)">
+    <rect width="170" height="68" rx="8" fill="#1a002880" stroke="#a855f720" stroke-width="1"/>
+    <text x="85" y="22" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#9333ea">Test Coverage</text>
+    <text x="85" y="44" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">63</text>
+    <text x="85" y="60" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff60">pytest · no GPU needed</text>
+  </g>
+
+  <!-- ── BENCHMARK BAR (real datasets tested) ──────────────────────────── -->
+  <rect x="20" y="408" width="820" height="54" rx="8" fill="#1a002880" stroke="#a855f720" stroke-width="1"/>
+  <text x="430" y="426" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="9" font-weight="700" fill="#a855f7aa" letter-spacing="2">REAL-WORLD BENCHMARK (500 records each)</text>
+
+  <!-- Alpaca -->
+  <text x="130" y="443" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">tatsu-lab/alpaca</text>
+  <rect x="40" y="447" width="178" height="7" rx="3" fill="#1a003080"/>
+  <rect x="40" y="447" width="176" height="7" rx="3" fill="#a855f7" opacity="0.85"/>
+  <text x="223" y="454" font-family="'Segoe UI', Arial, sans-serif" font-size="8" fill="#a855f7">99.4</text>
+
+  <!-- Dolly -->
+  <text x="420" y="443" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">databricks/dolly-15k</text>
+  <rect x="330" y="447" width="178" height="7" rx="3" fill="#1a003080"/>
+  <rect x="330" y="447" width="138" height="7" rx="3" fill="#f97316" opacity="0.85"/>
+  <text x="513" y="454" font-family="'Segoe UI', Arial, sans-serif" font-size="8" fill="#f97316">77.2</text>
+
+  <!-- HN -->
+  <text x="710" y="443" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="8.5" fill="#ffffff80">open-index/hacker-news</text>
+  <rect x="620" y="447" width="178" height="7" rx="3" fill="#1a003080"/>
+  <rect x="620" y="447" width="150" height="7" rx="3" fill="#eab308" opacity="0.85"/>
+  <text x="803" y="454" font-family="'Segoe UI', Arial, sans-serif" font-size="8" fill="#eab308">83.9</text>
+</svg>

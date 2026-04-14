@@ -1,6 +1,7 @@
 """Main CLI entry point for Dataset Quality Scorer."""
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -8,17 +9,32 @@ from typing import Optional
 # Ensure the project root is on sys.path when run directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Auto-load .env from the project root (works with both `dqs` CLI and `python -m src`)
+_env_file = Path(__file__).parent.parent / ".env"
+if _env_file.exists():
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _key, _, _val = _line.partition("=")
+                _key = _key.strip()
+                _val = _val.strip()
+                if _key and _val and _key not in os.environ:
+                    os.environ[_key] = _val
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from src.checks import (
-    load_dataset, load_config, calculate_quality_score,
+    load_dataset, load_hf_dataset, load_config, calculate_quality_score,
     detect_domain, get_domain_coverage,
     _DOMAIN_SUGGESTIONS,
 )
 from src.reporter import generate_terminal_report, generate_json_report, generate_html_report
+from src.llm_reviewer import review_sample as _llm_review_sample
 
 console = Console()
 # Status/progress messages go to stderr so stdout stays clean for piped JSON
@@ -51,12 +67,15 @@ def score_dataset(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to a custom config YAML file"
     ),
+    limit: int = typer.Option(
+        0, "--limit", "-n", help="Only load the first N records (0 = all)"
+    ),
 ):
     """Score a dataset and generate a detailed quality report."""
     try:
         config = load_config(config_file)
         _err.print(f"Loading dataset: [cyan]{filepath}[/cyan]")
-        data = load_dataset(filepath)
+        data = load_dataset(filepath, limit=limit)
         score_result = calculate_quality_score(data, config)
 
         if output_format == "terminal":
@@ -109,11 +128,12 @@ def score_dataset(
 def quick_score(
     filepath: str = typer.Argument(..., help="Path to JSONL dataset file"),
     config_file: Optional[str] = typer.Option(None, "--config", "-c"),
+    limit: int = typer.Option(0, "--limit", "-n", help="Only load the first N records (0 = all)"),
 ):
     """Print only the overall score (suitable for CI/CD scripts)."""
     try:
         config = load_config(config_file)
-        data = load_dataset(filepath)
+        data = load_dataset(filepath, limit=limit)
         result = calculate_quality_score(data, config)
         # Plain print — no Rich so shell scripts capture a bare float
         print(f"{result['overall_score']:.1f}")
@@ -335,11 +355,11 @@ def fix_suggestions(
 # ---------------------------------------------------------------------------
 
 def _rich_color(score: float) -> str:
-    if score >= 90:
+    if score >= 92:
         return "green"
-    elif score >= 75:
+    elif score >= 80:
         return "yellow"
-    elif score >= 50:
+    elif score >= 60:
         return "dark_orange"
     return "red"
 
@@ -888,6 +908,268 @@ def crosscheck_datasets(
         raise typer.Exit(code=1)
     except json.JSONDecodeError as e:
         _err.print(f"[red]Error: Invalid JSON: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# fetch  (HuggingFace → JSONL)
+# ---------------------------------------------------------------------------
+
+@app.command("fetch")
+def fetch_hf_dataset(
+    dataset_name: str = typer.Argument(
+        ..., help="HuggingFace dataset name, e.g. 'open-index/hacker-news'"
+    ),
+    split: str = typer.Option("train", "--split", "-s", help="Dataset split"),
+    hf_config: Optional[str] = typer.Option(
+        None, "--hf-config", help="Named configuration / subset (if any)"
+    ),
+    limit: int = typer.Option(
+        1000, "--limit", "-n",
+        help="Maximum number of records to fetch (default 1000)",
+    ),
+    output_file: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output JSONL path (default: <dataset_slug>.jsonl)",
+    ),
+    prompt_field: Optional[str] = typer.Option(
+        None, "--prompt-field",
+        help="HF column to map to 'prompt' (for prompt-completion format)",
+    ),
+    completion_field: Optional[str] = typer.Option(
+        None, "--completion-field",
+        help="HF column to map to 'completion'",
+    ),
+    filter_field: Optional[str] = typer.Option(
+        None, "--filter-field",
+        help="Column to filter rows on (e.g. --filter-field type --filter-value 1)",
+    ),
+    filter_value: Optional[str] = typer.Option(
+        None, "--filter-value",
+        help="Keep only rows where filter_field equals this value",
+    ),
+    score: bool = typer.Option(
+        True, "--score/--no-score",
+        help="Run quality analysis on the fetched data (default: yes)",
+    ),
+    config_file: Optional[str] = typer.Option(None, "--config", "-c"),
+):
+    """Fetch a HuggingFace dataset, save as JSONL, and optionally score it.
+
+    Examples:
+
+    \b
+      # Fetch 500 Hacker News stories (type=1) mapping title→prompt, text→completion
+      dqs fetch open-index/hacker-news --limit 500 --filter-field type --filter-value 1 \\
+          --prompt-field title --completion-field text
+
+    \b
+      # Fetch and score a standard instruct dataset
+      dqs fetch tatsu-lab/alpaca --limit 1000 --output alpaca_sample.jsonl
+    """
+    try:
+        _err.print(f"Fetching [cyan]{dataset_name}[/cyan] (split={split}, limit={limit}) …")
+
+        data = load_hf_dataset(
+            dataset_name,
+            split=split,
+            config_name=hf_config,
+            limit=limit,
+            prompt_field=prompt_field,
+            completion_field=completion_field,
+            filter_field=filter_field,
+            filter_value=filter_value,
+        )
+
+        if not data:
+            _err.print("[red]No records fetched — check dataset name, split, or filter.[/red]")
+            raise typer.Exit(code=1)
+
+        # Derive output filename from dataset slug
+        slug = dataset_name.replace("/", "_").replace("-", "_")
+        out_path = output_file or f"{slug}.jsonl"
+
+        with open(out_path, "w", encoding="utf-8") as fh:
+            for record in data:
+                fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+        console.print(
+            f"[green]Saved {len(data):,} records to:[/green] [cyan]{out_path}[/cyan]"
+        )
+
+        if score:
+            _err.print("Running quality analysis …")
+            config = load_config(config_file)
+            result = calculate_quality_score(data, config)
+            generate_terminal_report(result, f"{dataset_name} (fetched)")
+
+    except RuntimeError as e:
+        _err.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        _err.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# llm-review
+# ---------------------------------------------------------------------------
+
+@app.command("llm-review")
+def llm_review_dataset(
+    filepath: str = typer.Argument(..., help="Path to JSONL dataset file"),
+    api_key: Optional[str] = typer.Option(
+        None, "--api-key",
+        help="Anthropic API key (defaults to ANTHROPIC_API_KEY env var)",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m",
+        help="Model to use (auto-selected based on backend if omitted). "
+             "OpenRouter: 'anthropic/claude-haiku-4-5'. "
+             "Anthropic SDK: 'claude-haiku-4-5-20251001'.",
+    ),
+    sample_size: int = typer.Option(
+        20, "--sample", "-n",
+        help="Number of records to sample for LLM review (default 20)",
+    ),
+    output_format: str = typer.Option(
+        "terminal", "--format", "-f",
+        help="Output format: terminal | json",
+    ),
+    output_file: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Save report to this file (json format only)",
+    ),
+    include_in_score: bool = typer.Option(
+        False, "--include-in-score",
+        help="Add LLM review as a weighted check in the overall quality score",
+    ),
+    config_file: Optional[str] = typer.Option(None, "--config", "-c"),
+):
+    """LLM-based quality review: assess instruction clarity, output quality, and coherence.
+
+    Samples records and asks a model to rate each on a 0-10 scale for:
+    - Clarity   : how clear and specific the instruction is
+    - Quality   : how accurate and complete the output is
+    - Coherence : how well the output addresses the instruction
+
+    \b
+    Backend selection (first match wins):
+      1. --api-key sk-or-...           → OpenRouter (no extra packages needed)
+      2. OPENROUTER_API_KEY env var    → OpenRouter
+      3. ANTHROPIC_API_KEY env var     → Anthropic SDK (pip install anthropic)
+    """
+    try:
+        config = load_config(config_file)
+        _err.print(f"Loading dataset: [cyan]{filepath}[/cyan]")
+        data = load_dataset(filepath)
+
+        _err.print(
+            f"Running LLM review on {min(sample_size, len(data))} records "
+            f"using [cyan]{model}[/cyan] …"
+        )
+
+        passed, message, score_val, details = _llm_review_sample(
+            data,
+            api_key=api_key,
+            model=model,
+            sample_size=sample_size,
+        )
+
+        if details.get("skipped"):
+            _err.print(f"[yellow]{message}[/yellow]")
+            return
+
+        if include_in_score:
+            # Inject llm_quality into the full score calculation
+            llm_weight = config.get("llm_review", {}).get("weight", 0.15)
+            base_result = calculate_quality_score(data, config)
+            base_result["checks"]["llm_quality"] = {
+                "passed": passed,
+                "message": message,
+                "score": score_val,
+                "weight": llm_weight,
+                "details": details,
+            }
+            # Re-normalise overall score to include llm_quality weight
+            total_w = sum(c["weight"] for c in base_result["checks"].values())
+            total_ws = sum(c["score"] * c["weight"] for c in base_result["checks"].values())
+            base_result["overall_score"] = (total_ws / total_w * 100) if total_w else 0.0
+
+            if output_format == "terminal":
+                generate_terminal_report(base_result, filepath)
+            elif output_format == "json":
+                report = generate_json_report(base_result, filepath)
+                if output_file:
+                    Path(output_file).write_text(report, encoding="utf-8")
+                    _err.print(f"JSON report saved to: [cyan]{output_file}[/cyan]")
+                else:
+                    print(report)
+            return
+
+        # Standalone LLM review report
+        color = "green" if passed else "red"
+        avg = details["avg_overall_10"]
+        console.print(Panel(
+            Text(f"LLM Quality Review: {filepath}", style="bold blue"),
+            title="Dataset LLM Reviewer",
+        ))
+        console.print(
+            f"\n[bold]LLM Score: [{color}]{avg:.1f}/10[/{color}][/bold]"
+            f"  ({details['records_sampled']} records sampled)"
+        )
+        console.print(
+            f"  Clarity  : [cyan]{details['avg_clarity']:.1f}/10[/cyan]\n"
+            f"  Quality  : [cyan]{details['avg_quality']:.1f}/10[/cyan]\n"
+            f"  Coherence: [cyan]{details['avg_coherence']:.1f}/10[/cyan]\n"
+        )
+
+        if details.get("flagged_rows"):
+            tbl = Table(title="Flagged Records", show_lines=True)
+            tbl.add_column("Row", justify="right", style="red", no_wrap=True)
+            tbl.add_column("Clarity", justify="center")
+            tbl.add_column("Quality", justify="center")
+            tbl.add_column("Coherence", justify="center")
+            tbl.add_column("Issue")
+            for row in details["flagged_rows"]:
+                tbl.add_row(
+                    str(row["row"]),
+                    str(row.get("clarity", "?")),
+                    str(row.get("quality", "?")),
+                    str(row.get("coherence", "?")),
+                    row.get("flag", ""),
+                )
+            console.print(tbl)
+        else:
+            console.print("[green]No records flagged by LLM review.[/green]")
+
+        if output_format == "json":
+            report_dict = {
+                "dataset_path": filepath,
+                "llm_review": {
+                    "model": details["model"],
+                    "records_sampled": details["records_sampled"],
+                    "avg_clarity": details["avg_clarity"],
+                    "avg_quality": details["avg_quality"],
+                    "avg_coherence": details["avg_coherence"],
+                    "avg_overall_10": details["avg_overall_10"],
+                    "flagged_count": details["flagged_count"],
+                    "flagged_rows": details["flagged_rows"],
+                    "passed": passed,
+                },
+            }
+            report_str = json.dumps(report_dict, indent=2)
+            if output_file:
+                Path(output_file).write_text(report_str, encoding="utf-8")
+                _err.print(f"JSON report saved to: [cyan]{output_file}[/cyan]")
+            else:
+                print(report_str)
+
+    except FileNotFoundError:
+        _err.print(f"[red]Error: File not found: {filepath}[/red]")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        _err.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(code=1)
 
 

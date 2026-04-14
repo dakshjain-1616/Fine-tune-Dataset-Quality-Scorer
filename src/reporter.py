@@ -9,9 +9,9 @@ from rich.panel import Panel
 from rich.text import Text
 
 # Score-band thresholds (mirror config.yaml defaults)
-_READY = 90
-_CAUTION = 75
-_NEEDS_WORK = 50
+_READY = 92
+_CAUTION = 80
+_NEEDS_WORK = 60
 
 
 def _grade_label(score: float, grade: str = None) -> str:

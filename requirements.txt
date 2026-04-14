@@ -1,5 +1,17 @@
+# Core dependencies (always required)
 typer>=0.9.0
 rich>=13.0.0
 pyyaml>=6.0
+
+# Development / testing
 pytest>=7.0.0
 pytest-mock>=3.0.0
+
+# Optional: HuggingFace dataset fetch (required for `dqs fetch` command)
+# pip install datasets huggingface-hub
+datasets>=2.14.0
+huggingface-hub>=0.20.0
+
+# Optional: LLM-based quality review (required for `dqs llm-review` command)
+# pip install anthropic
+anthropic>=0.40.0

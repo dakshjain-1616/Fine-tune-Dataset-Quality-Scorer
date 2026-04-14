@@ -1,7 +1,6 @@
 # Fine-tune Dataset Quality Scorer Configuration
 
 # Score weights (must sum to 1.0)
-# These determine how much each check contributes to the overall score.
 weights:
   json_format: 0.08
   field_consistency: 0.16
@@ -18,34 +17,42 @@ weights:
 # Thresholds for individual checks
 thresholds:
   # Field consistency (fraction of records that have ALL expected fields)
-  field_consistency_pass: 0.95   # >= 95% → full pass
-  field_consistency_soft: 0.80   # 80-95% → soft pass (score penalised)
+  field_consistency_pass: 0.97   # >= 97% → full pass   (was 0.95)
+  field_consistency_soft: 0.90   # 90-97% → soft pass   (was 0.80)
 
   # Missing / empty values (fraction of present field values that are non-empty)
-  missing_values_pass: 0.95      # >= 95% completeness → full pass
-  missing_values_soft: 0.80      # 80-95% → soft pass (score penalised)
+  missing_values_pass: 0.98      # >= 98% completeness → full pass  (was 0.95)
+  missing_values_soft: 0.92      # 92-98% → soft pass               (was 0.80)
 
   # Exact deduplication (fraction of records that are unique)
-  duplicate_soft: 0.90           # >= 90% unique → soft pass
+  duplicate_soft: 0.97           # >= 97% unique → soft pass  (was 0.90)
 
-  # Near-duplicate detection (Jaccard word-set similarity) — applies to both
-  # input (near_duplicates) and output (output_diversity) checks
-  near_duplicate_similarity: 0.85  # pairs above this threshold are flagged
-  near_duplicate_sample: 500       # max records compared (for performance)
+  # Near-duplicate detection (Jaccard word-set similarity)
+  # Lower threshold = catches more paraphrased duplicates
+  near_duplicate_similarity: 0.72  # was 0.85 — 0.72 catches ~70% word overlap
+  near_duplicate_sample: 500
 
   # Text length (in words, applied to primary text / instruction field)
-  min_text_words: 3
+  min_text_words: 5              # was 3 — 3 words is barely a sentence
   max_text_words: 2000
 
   # Token length estimation (word_count × 1.3 heuristic)
-  max_token_estimate: 2048       # records estimated to exceed this are flagged
+  max_token_estimate: 2048
 
   # Instruction quality (Alpaca format only)
-  min_instruction_words: 4       # instructions shorter than this are flagged
+  min_instruction_words: 5       # was 4
 
 # Score bands (used for the grade label and recommendations)
 score_bands:
-  ready: 90        # >= 90 → READY for fine-tuning
-  caution: 75      # 75-89 → CAUTION: minor issues
-  needs_work: 50   # 50-74 → NEEDS WORK: significant issues
-                   # < 50  → NOT READY: critical issues
+  ready: 92       # was 90 — raise bar for "fine-tuning ready"
+  caution: 80     # was 75
+  needs_work: 60  # was 50
+
+# LLM review settings
+llm_review:
+  openrouter_model: anthropic/claude-haiku-4-5
+  anthropic_model: claude-haiku-4-5-20251001
+  sample_size: 20
+  batch_size: 10
+  weight: 0.15
+  pass_threshold: 0.70           # 7/10 minimum average to pass (was 0.60)

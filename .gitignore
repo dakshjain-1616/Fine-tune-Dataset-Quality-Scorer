@@ -12,3 +12,9 @@ reports/
 *.log
 htmlcov/
 .coverage
+# Fetched datasets (regenerate with: dqs fetch ...)
+examples/datasets/alpaca_*.jsonl
+examples/datasets/dolly_*.jsonl
+examples/datasets/hacker_news_*.jsonl
+# Generated reports
+examples/reports/
